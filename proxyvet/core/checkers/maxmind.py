@@ -1,5 +1,6 @@
 import os
 import asyncio
+import threading
 import geoip2.database
 from proxyvet.core.checkers.base import BaseChecker
 from proxyvet.core.models import IPSignalData, ASNType
@@ -10,6 +11,7 @@ class MaxMindChecker(BaseChecker):
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._reader = None
+        self._lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -31,15 +33,18 @@ class MaxMindChecker(BaseChecker):
 
     def _get_reader(self) -> geoip2.database.Reader:
         if self._reader is None:
-            if not os.path.exists(self.db_path):
-                raise FileNotFoundError(f"MaxMind database file not found at: {self.db_path}")
-            self._reader = geoip2.database.Reader(self.db_path)
+            with self._lock:
+                if self._reader is None:
+                    if not os.path.exists(self.db_path):
+                        raise FileNotFoundError(f"MaxMind database file not found at: {self.db_path}")
+                    self._reader = geoip2.database.Reader(self.db_path)
         return self._reader
 
     def close(self):
-        if self._reader is not None:
-            self._reader.close()
-            self._reader = None
+        with self._lock:
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
 
     def _run_lookup(self, ip: str) -> IPSignalData:
         result = IPSignalData(ip=ip, source=self.name)

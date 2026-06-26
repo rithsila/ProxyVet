@@ -27,7 +27,7 @@ class DNSBLChecker(BaseChecker):
                 if ip_str.startswith("127.0.0."):
                     return True
             return False
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        except Exception:
             return False
 
     async def check(self, ip: str) -> IPSignalData:

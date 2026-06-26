@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import asyncio
 import httpx
 import re
+import ipaddress
 from contextlib import asynccontextmanager
 
 from proxyvet.core.config import get_settings
@@ -28,7 +29,9 @@ class BatchVettingRequest(BaseModel):
     @classmethod
     def validate_ips(cls, v):
         for ip in v:
-            if not IP_PATTERN.match(ip):
+            try:
+                ipaddress.IPv4Address(ip)
+            except ipaddress.AddressValueError:
                 raise ValueError(f"Invalid IP address format: {ip}")
         return v
 
@@ -58,9 +61,18 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    app.state.maxmind_checker.close()
-    app.state.ip2proxy_checker.close()
-    await client.aclose()
+    try:
+        app.state.maxmind_checker.close()
+    except Exception:
+        pass
+    try:
+        app.state.ip2proxy_checker.close()
+    except Exception:
+        pass
+    try:
+        await client.aclose()
+    except Exception:
+        pass
 
 app = FastAPI(title="ProxyVet API", version="0.1.0", lifespan=lifespan)
 
@@ -89,6 +101,10 @@ async def vet_ip(
     ip: str = Path(..., pattern=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"),
     force_refresh: bool = Query(False)
 ):
+    try:
+        ipaddress.IPv4Address(ip)
+    except ipaddress.AddressValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address format")
     engine = get_engine()
     try:
         result = await engine.vet_ip(ip, force_refresh=force_refresh)
@@ -110,6 +126,10 @@ async def vet_batch(request: BatchVettingRequest):
 def get_ip_history(
     ip: str = Path(..., pattern=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 ):
+    try:
+        ipaddress.IPv4Address(ip)
+    except ipaddress.AddressValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address format")
     settings = get_settings()
     cache_mgr = CacheManager(settings.sqlite_db_path)
     return cache_mgr.get_history(ip)

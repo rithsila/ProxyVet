@@ -167,3 +167,22 @@ def test_cli_batch_empty_file(tmp_path):
     if not output and hasattr(res, "stderr"):
         output = res.stderr
     assert "Error: Validation failed" in output or "empty" in output.lower()
+
+def test_cli_check_invalid_octets():
+    res = runner.invoke(app, ["check", "999.999.999.999"])
+    assert res.exit_code == 1
+    output = res.stdout
+    if not output and hasattr(res, "stderr"):
+        output = res.stderr
+    assert "Error: Invalid IP address format." in output
+
+def test_cli_batch_invalid_octets(tmp_path):
+    ip_file = tmp_path / "invalid_ips.txt"
+    ip_file.write_text("1.1.1.1\n999.999.999.999\n")
+
+    res = runner.invoke(app, ["batch", str(ip_file)])
+    assert res.exit_code == 1
+    output = res.stdout
+    if not output and hasattr(res, "stderr"):
+        output = res.stderr
+    assert "Error: Invalid IP address format: 999.999.999.999" in output

@@ -2,6 +2,7 @@ import typer
 import asyncio
 import os
 import httpx
+import ipaddress
 from typing import Optional
 from proxyvet.core.config import get_settings
 from proxyvet.core.cache import CacheManager
@@ -66,6 +67,12 @@ def check(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON")
 ):
     """Vet a single IP address."""
+    try:
+        ipaddress.IPv4Address(ip)
+    except ipaddress.AddressValueError:
+        typer.echo("Error: Invalid IP address format.", err=True)
+        raise typer.Exit(code=1)
+
     settings = get_settings()
     cache_mgr = CacheManager(settings.sqlite_db_path)
     cache_mgr.init_db()
@@ -117,6 +124,13 @@ def batch(
     if not ips:
         typer.echo("Error: Validation failed. Batch file contains no IPs or only empty lines.", err=True)
         raise typer.Exit(code=1)
+
+    for ip in ips:
+        try:
+            ipaddress.IPv4Address(ip)
+        except ipaddress.AddressValueError:
+            typer.echo(f"Error: Invalid IP address format: {ip}", err=True)
+            raise typer.Exit(code=1)
 
     if not json_output:
         typer.echo(f"Vetting {len(ips)} IPs...")
