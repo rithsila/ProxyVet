@@ -1,4 +1,5 @@
 import os
+import asyncio
 import geoip2.database
 from proxyvet.core.checkers.base import BaseChecker
 from proxyvet.core.models import IPSignalData, ASNType
@@ -25,7 +26,7 @@ class MaxMindChecker(BaseChecker):
             return ASNType.MOBILE
         return ASNType.RESIDENTIAL
 
-    async def check(self, ip: str) -> IPSignalData:
+    def _run_lookup(self, ip: str) -> IPSignalData:
         result = IPSignalData(ip=ip, source=self.name)
         if not os.path.exists(self.db_path):
             return result
@@ -39,3 +40,7 @@ class MaxMindChecker(BaseChecker):
         except Exception:
             pass
         return result
+
+    async def check(self, ip: str) -> IPSignalData:
+        return await asyncio.to_thread(self._run_lookup, ip)
+

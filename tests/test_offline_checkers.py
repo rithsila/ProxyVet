@@ -37,3 +37,37 @@ async def test_ip2proxy_checker(mock_ip2proxy_class):
         assert res.is_vpn is True
         assert res.is_tor is False
         assert res.is_datacenter is True
+        mock_inst.close.assert_called_once()
+
+@pytest.mark.anyio
+@patch('IP2Proxy.IP2Proxy')
+async def test_ip2proxy_checker_fallback_fields(mock_ip2proxy_class):
+    mock_inst = MagicMock()
+    mock_inst.get_all.return_value = {
+        "usage_type": "-",
+        "is_proxy": "-",
+        "proxy_type": "-"
+    }
+    mock_ip2proxy_class.return_value = mock_inst
+
+    with patch('os.path.exists', return_value=True):
+        checker = IP2ProxyChecker(db_path="dummy.bin")
+        res = await checker.check("8.8.8.8")
+        assert res.is_proxy is None
+        assert res.is_vpn is None
+        assert res.is_tor is None
+        assert res.is_datacenter is None
+        mock_inst.close.assert_called_once()
+
+@pytest.mark.anyio
+@patch('IP2Proxy.IP2Proxy')
+async def test_ip2proxy_checker_close_on_exception(mock_ip2proxy_class):
+    mock_inst = MagicMock()
+    mock_inst.get_all.side_effect = Exception("Query error")
+    mock_ip2proxy_class.return_value = mock_inst
+
+    with patch('os.path.exists', return_value=True):
+        checker = IP2ProxyChecker(db_path="dummy.bin")
+        res = await checker.check("8.8.8.8")
+        mock_inst.close.assert_called_once()
+
