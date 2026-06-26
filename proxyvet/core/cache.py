@@ -1,15 +1,23 @@
+import contextlib
 import sqlite3
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
+from pydantic import ValidationError
 from proxyvet.core.models import IPSignalData, VerdictResult
 
 class CacheManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
 
+    @contextlib.contextmanager
     def _get_conn(self):
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def init_db(self):
         with self._get_conn() as conn:
@@ -44,10 +52,23 @@ class CacheManager:
             if not row:
                 return None
             data_str, updated_at_str = row
-            updated_at = datetime.fromisoformat(updated_at_str)
+            try:
+                updated_at = datetime.fromisoformat(updated_at_str)
+            except ValueError:
+                return None
+
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            else:
+                updated_at = updated_at.astimezone(timezone.utc)
+
             if datetime.now(timezone.utc) - updated_at > timedelta(hours=ttl_hours):
                 return None
-            return IPSignalData.model_validate_json(data_str)
+
+            try:
+                return IPSignalData.model_validate_json(data_str)
+            except ValidationError:
+                return None
 
     def save_cached_signal(self, signal: IPSignalData):
         with self._get_conn() as conn:
@@ -69,12 +90,28 @@ class CacheManager:
             )
             results = []
             for row in cursor.fetchall():
+                checked_at_val = row[4]
+                if checked_at_val:
+                    try:
+                        dt = datetime.fromisoformat(checked_at_val)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        else:
+                            dt = dt.astimezone(timezone.utc)
+                        checked_at_val = dt.isoformat()
+                    except ValueError:
+                        try:
+                            dt = datetime.strptime(checked_at_val, "%Y-%m-%d %H:%M:%S")
+                            dt = dt.replace(tzinfo=timezone.utc)
+                            checked_at_val = dt.isoformat()
+                        except ValueError:
+                            pass
                 results.append({
                     "verdict": row[0],
                     "composite_score": row[1],
                     "reasons": json.loads(row[2]),
                     "signals": json.loads(row[3]),
-                    "checked_at": row[4]
+                    "checked_at": checked_at_val
                 })
             return results
 
@@ -82,9 +119,17 @@ class CacheManager:
         with self._get_conn() as conn:
             reasons_str = json.dumps(result.reasons)
             signals_str = json.dumps([sig.model_dump() for sig in result.signals])
+            
+            checked_at_utc = result.checked_at
+            if checked_at_utc.tzinfo is None:
+                checked_at_utc = checked_at_utc.replace(tzinfo=timezone.utc)
+            else:
+                checked_at_utc = checked_at_utc.astimezone(timezone.utc)
+            checked_at_str = checked_at_utc.isoformat()
+            
             conn.execute(
                 """
                 INSERT INTO history (ip, verdict, composite_score, reasons, signals, checked_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-                """, (result.ip, result.verdict.value, result.composite_score, reasons_str, signals_str, result.checked_at.isoformat())
+                """, (result.ip, result.verdict.value, result.composite_score, reasons_str, signals_str, checked_at_str)
             )

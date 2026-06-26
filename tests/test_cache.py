@@ -64,3 +64,74 @@ def test_history_save_get(cache_mgr):
 def test_history_empty(cache_mgr):
     history = cache_mgr.get_history("1.1.1.1")
     assert history == []
+
+def test_cache_validation_error_tolerance(cache_mgr):
+    # Manually insert invalid JSON schema into cache
+    with cache_mgr._get_conn() as conn:
+        conn.execute(
+            "INSERT INTO cache (ip, source, data, updated_at) VALUES (?, ?, ?, ?)",
+            ("1.2.3.4", "test", '{"invalid_field": true}', datetime.now(timezone.utc).isoformat())
+        )
+    # The ValidationError should be caught, resulting in a cache miss (None)
+    assert cache_mgr.get_cached_signal("1.2.3.4", "test", ttl_hours=1) is None
+
+def test_timezone_naive_updated_at(cache_mgr):
+    # Save a valid signal
+    sig = IPSignalData(ip="1.2.3.5", asn=123, source="test", asn_type=ASNType.DATACENTER)
+    cache_mgr.save_cached_signal(sig)
+    
+    # Update with a naive timestamp string
+    now_naive_str = datetime.now().isoformat()
+    with cache_mgr._get_conn() as conn:
+        conn.execute("UPDATE cache SET updated_at = ? WHERE ip = ?", (now_naive_str, "1.2.3.5"))
+        
+    retrieved = cache_mgr.get_cached_signal("1.2.3.5", "test", ttl_hours=1)
+    assert retrieved is not None
+    assert retrieved.asn == 123
+
+def test_checked_at_normalization(cache_mgr):
+    # 1. Naive checked_at
+    naive_dt = datetime.now()
+    res = VerdictResult(
+        ip="1.2.3.6",
+        verdict=Verdict.CLEAN,
+        composite_score=0.1,
+        reasons=[],
+        signals=[],
+        checked_at=naive_dt
+    )
+    cache_mgr.save_history(res)
+    history = cache_mgr.get_history("1.2.3.6")
+    assert len(history) == 1
+    assert history[0]["checked_at"].endswith("+00:00")
+
+    # 2. Non-UTC timezone checked_at
+    est = timezone(timedelta(hours=-5))
+    aware_dt = datetime.now(est)
+    res2 = VerdictResult(
+        ip="1.2.3.7",
+        verdict=Verdict.CLEAN,
+        composite_score=0.1,
+        reasons=[],
+        signals=[],
+        checked_at=aware_dt
+    )
+    cache_mgr.save_history(res2)
+    history2 = cache_mgr.get_history("1.2.3.7")
+    assert len(history2) == 1
+    assert history2[0]["checked_at"].endswith("+00:00")
+    retrieved_dt = datetime.fromisoformat(history2[0]["checked_at"])
+    assert abs((retrieved_dt - aware_dt).total_seconds()) < 1.0
+
+def test_sqlite_current_timestamp_fallback(cache_mgr):
+    # SQLite CURRENT_TIMESTAMP format is YYYY-MM-DD HH:MM:SS
+    with cache_mgr._get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO history (ip, verdict, composite_score, reasons, signals, checked_at)
+            VALUES (?, ?, ?, ?, ?, '2026-06-26 14:04:07')
+            """, ("1.2.3.8", "CLEAN", 0.0, "[]", "[]")
+        )
+    history = cache_mgr.get_history("1.2.3.8")
+    assert len(history) == 1
+    assert history[0]["checked_at"] == "2026-06-26T14:04:07+00:00"
