@@ -22,10 +22,10 @@ class VerdictEngine:
             is_burned = True
             reasons.append("Tor exit node detected")
 
-        proxy_vpn_sources = [sig.source for sig in signals if sig.is_proxy is True or sig.is_vpn is True]
+        proxy_vpn_sources = {sig.source for sig in signals if sig.is_proxy is True or sig.is_vpn is True}
         if len(proxy_vpn_sources) >= 2:
             is_burned = True
-            reasons.append(f"Flagged as proxy/VPN by multiple sources: {', '.join(proxy_vpn_sources)}")
+            reasons.append(f"Flagged as proxy/VPN by multiple sources: {', '.join(sorted(proxy_vpn_sources))}")
 
         dnsbl_hits = sum(sig.dnsbl_hits for sig in signals if sig.dnsbl_hits and sig.dnsbl_hits > 0)
         if dnsbl_hits >= 1:
@@ -64,7 +64,7 @@ class VerdictEngine:
         # Single source proxy/VPN flag
         if len(proxy_vpn_sources) == 1:
             score += 30.0
-            reasons.append(f"Suspicious: flagged as proxy/VPN by a single source ({proxy_vpn_sources[0]}) (+30)")
+            reasons.append(f"Suspicious: flagged as proxy/VPN by a single source ({list(proxy_vpn_sources)[0]}) (+30)")
 
         # Abuse score contribution
         abuse_scores = [sig.abuse_score for sig in signals if sig.abuse_score is not None]
@@ -105,11 +105,11 @@ class VerdictEngine:
         # Step A: Collect Signals (Check cache first unless forced)
         async def get_signal(checker: BaseChecker) -> IPSignalData:
             if not force_refresh:
-                cached = self.cache_mgr.get_cached_signal(ip, checker.name, checker.cache_ttl_hours)
+                cached = await asyncio.to_thread(self.cache_mgr.get_cached_signal, ip, checker.name, checker.cache_ttl_hours)
                 if cached:
                     return cached
             fresh = await checker.check(ip)
-            self.cache_mgr.save_cached_signal(fresh)
+            await asyncio.to_thread(self.cache_mgr.save_cached_signal, fresh)
             return fresh
 
         tasks = [get_signal(c) for c in self.checkers]
@@ -119,7 +119,7 @@ class VerdictEngine:
         result = self.evaluate_signals(ip, signals)
 
         # Step C: Load History & Check Drift
-        history = self.cache_mgr.get_history(ip)
+        history = await asyncio.to_thread(self.cache_mgr.get_history, ip)
         if history:
             prev = history[0]
             result.previous_verdict = Verdict(prev["verdict"])
@@ -128,5 +128,5 @@ class VerdictEngine:
                 result.drift_detected = True
 
         # Step D: Save History
-        self.cache_mgr.save_history(result)
+        await asyncio.to_thread(self.cache_mgr.save_history, result)
         return result

@@ -68,6 +68,14 @@ async def test_engine_evaluate_signals_rules():
     assert res.verdict == Verdict.CLEAN  # threshold > 25 is CAUTION, <= 25 is CLEAN
     assert any("Source ASN classification mismatch" in r for r in res.reasons)
 
+    # Test case 8: Single source reporting both proxy and VPN (should not trigger multiple sources hard gate)
+    sig9 = IPSignalData(ip="1.1.1.1", is_proxy=True, is_vpn=True, source="src9")
+    res = engine.evaluate_signals("1.1.1.1", [sig9])
+    assert res.verdict != Verdict.BURNED
+    assert res.composite_score == 30.0  # 30 (single-source proxy/VPN)
+    assert any("Suspicious: flagged as proxy/VPN by a single source (src9)" in r for r in res.reasons)
+
+
 
 @pytest.mark.anyio
 async def test_engine_vet_ip_cache_hit():
