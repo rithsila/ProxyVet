@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "proxyvet"
+version = "0.1.0"
+description = "Proxy IP quality checker"
+authors = ["ProxyVet Developer <developer@proxyvet.local>"]
+packages = [{include = "proxyvet"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.100.0"
+uvicorn = "^0.22.0"
+typer = "^0.9.0"
+pydantic = "^2.0.0"
+pydantic-settings = "^2.0.0"
+httpx = "^0.24.0"
+geoip2 = "^4.7.0"
+ip2proxy-py = "^4.0.0"
+dnspython = "^2.3.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.3.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
