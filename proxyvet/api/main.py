@@ -18,6 +18,8 @@ from proxyvet.core.checkers.dnsbl import DNSBLChecker
 from proxyvet.core.checkers.abuseipdb import AbuseIPDBChecker
 from proxyvet.core.checkers.proxycheck import ProxyCheckChecker
 from proxyvet.core.checkers.stopforumspam import StopForumSpamChecker
+from proxyvet.core.checkers.vpnapi import VPNAPIChecker
+from proxyvet.core.checkers.ipqualityscore import IPQualityScoreChecker
 
 IP_PATTERN = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
@@ -54,7 +56,9 @@ async def lifespan(app: FastAPI):
         DNSBLChecker(),
         AbuseIPDBChecker(settings.abuseipdb_api_key, client=client),
         ProxyCheckChecker(settings.proxycheck_api_key, client=client),
-        StopForumSpamChecker(client=client)
+        StopForumSpamChecker(client=client),
+        VPNAPIChecker(settings.vpnapi_api_key, client=client),
+        IPQualityScoreChecker(settings.ipqualityscore_api_key, client=client)
     ]
     app.state.engine = VerdictEngine(settings, cache_mgr, checkers)
     
@@ -88,7 +92,9 @@ def get_engine() -> VerdictEngine:
             DNSBLChecker(),
             AbuseIPDBChecker(settings.abuseipdb_api_key),
             ProxyCheckChecker(settings.proxycheck_api_key),
-            StopForumSpamChecker()
+            StopForumSpamChecker(),
+            VPNAPIChecker(settings.vpnapi_api_key),
+            IPQualityScoreChecker(settings.ipqualityscore_api_key)
         ]
         return VerdictEngine(settings, cache_mgr, checkers)
 

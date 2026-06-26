@@ -13,6 +13,8 @@ from proxyvet.core.checkers.dnsbl import DNSBLChecker
 from proxyvet.core.checkers.abuseipdb import AbuseIPDBChecker
 from proxyvet.core.checkers.proxycheck import ProxyCheckChecker
 from proxyvet.core.checkers.stopforumspam import StopForumSpamChecker
+from proxyvet.core.checkers.vpnapi import VPNAPIChecker
+from proxyvet.core.checkers.ipqualityscore import IPQualityScoreChecker
 
 app = typer.Typer(help="ProxyVet - IP Quality Vetting Tool")
 
@@ -26,7 +28,9 @@ def get_engine(client: Optional[httpx.AsyncClient] = None) -> VerdictEngine:
         DNSBLChecker(),
         AbuseIPDBChecker(settings.abuseipdb_api_key, client=client),
         ProxyCheckChecker(settings.proxycheck_api_key, client=client),
-        StopForumSpamChecker(client=client)
+        StopForumSpamChecker(client=client),
+        VPNAPIChecker(settings.vpnapi_api_key, client=client),
+        IPQualityScoreChecker(settings.ipqualityscore_api_key, client=client)
     ]
     return VerdictEngine(settings, cache_mgr, checkers)
 
