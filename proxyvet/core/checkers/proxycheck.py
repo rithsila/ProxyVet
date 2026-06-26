@@ -42,7 +42,18 @@ class ProxyCheckChecker(BaseChecker):
         data = resp_json[ip]
         result.is_proxy = data.get("proxy") == "yes"
         result.is_vpn = data.get("vpn") == "yes"
-        result.asn = data.get("asn")
+        asn_val = data.get("asn")
+        if asn_val is not None:
+            if isinstance(asn_val, str) and asn_val.upper().startswith("AS"):
+                try:
+                    result.asn = int(asn_val[2:])
+                except ValueError:
+                    pass
+            else:
+                try:
+                    result.asn = int(asn_val)
+                except ValueError:
+                    pass
         result.asn_org = data.get("provider")
         
         type_str = data.get("type", "").lower()
