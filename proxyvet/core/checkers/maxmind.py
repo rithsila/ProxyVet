@@ -23,7 +23,7 @@ class MaxMindChecker(BaseChecker):
 
     def _infer_asn_type(self, org: str) -> ASNType:
         org_lower = org.lower()
-        dc_keywords = ["hosting", "cloud", "datacenter", "m247", "digitalocean", "ovh", "server", "aws", "google", "linode", "hetzner"]
+        dc_keywords = ["hosting", "cloud", "datacenter", "m247", "digitalocean", "ovh", "server", "aws", "google", "linode", "hetzner", "godaddy", "secureserver", "thunderbox"]
         mobile_keywords = ["mobile", "wireless", "telecom", "vodafone", "t-mobile", "orange", "verizon", "att", "sprint"]
         if any(kw in org_lower for kw in dc_keywords):
             return ASNType.DATACENTER
