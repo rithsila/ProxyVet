@@ -108,9 +108,12 @@ class VerdictEngine:
                 cached = await asyncio.to_thread(self.cache_mgr.get_cached_signal, ip, checker.name, checker.cache_ttl_hours)
                 if cached:
                     return cached
-            fresh = await checker.check(ip)
-            await asyncio.to_thread(self.cache_mgr.save_cached_signal, fresh)
-            return fresh
+            try:
+                fresh = await checker.check(ip)
+                await asyncio.to_thread(self.cache_mgr.save_cached_signal, fresh)
+                return fresh
+            except Exception:
+                return IPSignalData(ip=ip, source=checker.name)
 
         tasks = [get_signal(c) for c in self.checkers]
         signals = list(await asyncio.gather(*tasks))

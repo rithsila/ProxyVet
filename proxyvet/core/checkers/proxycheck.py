@@ -3,8 +3,9 @@ from proxyvet.core.checkers.base import BaseChecker
 from proxyvet.core.models import IPSignalData, ASNType
 
 class ProxyCheckChecker(BaseChecker):
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, client: httpx.AsyncClient = None):
         self.api_key = api_key
+        self.client = client
 
     @property
     def name(self) -> str:
@@ -17,26 +18,38 @@ class ProxyCheckChecker(BaseChecker):
     async def check(self, ip: str) -> IPSignalData:
         result = IPSignalData(ip=ip, source=self.name)
         if not self.api_key:
-            return result
+            raise ValueError("API key is missing for proxycheck")
+            
         url = f"https://proxycheck.io/v2/{ip}"
         params = {"key": self.api_key, "vpn": "1", "asn": "1"}
-        try:
+        
+        if self.client is not None:
+            resp = await self.client.get(url, params=params)
+        else:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(url, params=params)
-                if resp.status_code == 200:
-                    data = resp.json().get(ip, {})
-                    result.is_proxy = data.get("proxy") == "yes"
-                    result.is_vpn = data.get("vpn") == "yes"
-                    result.asn = data.get("asn")
-                    result.asn_org = data.get("provider")
-                    
-                    type_str = data.get("type", "").lower()
-                    if "hosting" in type_str or "business" in type_str:
-                        result.asn_type = ASNType.DATACENTER
-                    elif "wireless" in type_str or "cellular" in type_str:
-                        result.asn_type = ASNType.MOBILE
-                    elif "residential" in type_str:
-                        result.asn_type = ASNType.RESIDENTIAL
-        except Exception:
-            pass
+                
+        resp.raise_for_status()
+        resp_json = resp.json()
+        
+        status = resp_json.get("status")
+        if status != "ok":
+            raise ValueError(f"proxycheck API returned status: {status}")
+            
+        if ip not in resp_json:
+            raise ValueError(f"IP {ip} not found in proxycheck API response")
+            
+        data = resp_json[ip]
+        result.is_proxy = data.get("proxy") == "yes"
+        result.is_vpn = data.get("vpn") == "yes"
+        result.asn = data.get("asn")
+        result.asn_org = data.get("provider")
+        
+        type_str = data.get("type", "").lower()
+        if "hosting" in type_str or "business" in type_str:
+            result.asn_type = ASNType.DATACENTER
+        elif "wireless" in type_str or "cellular" in type_str:
+            result.asn_type = ASNType.MOBILE
+        elif "residential" in type_str:
+            result.asn_type = ASNType.RESIDENTIAL
         return result

@@ -162,3 +162,16 @@ def test_get_ip_history(mock_cache_mgr_cls):
     assert res.status_code == 200
     assert res.json() == mock_history
     mock_cache_mgr.get_history.assert_called_once_with("1.1.1.1")
+
+def test_vet_batch_invalid_ips():
+    payload = {
+        "ips": ["1.1.1.1", "not-an-ip"],
+        "force_refresh": False
+    }
+    res = client.post("/api/v1/vet/batch", json=payload)
+    assert res.status_code == 422
+    assert "Invalid IP address format" in res.text
+
+def test_get_ip_history_invalid_ip():
+    res = client.get("/api/v1/history/not-an-ip")
+    assert res.status_code == 422

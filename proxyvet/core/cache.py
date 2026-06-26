@@ -21,6 +21,7 @@ class CacheManager:
 
     def init_db(self):
         with self._get_conn() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS cache (
                     ip TEXT NOT NULL,

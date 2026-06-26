@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Path, Query, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import datetime, timezone
 import asyncio
+import httpx
+import re
+from contextlib import asynccontextmanager
+
 from proxyvet.core.config import get_settings
 from proxyvet.core.cache import CacheManager
 from proxyvet.core.engine import VerdictEngine
@@ -12,26 +16,69 @@ from proxyvet.core.checkers.ip2proxy import IP2ProxyChecker
 from proxyvet.core.checkers.dnsbl import DNSBLChecker
 from proxyvet.core.checkers.abuseipdb import AbuseIPDBChecker
 from proxyvet.core.checkers.proxycheck import ProxyCheckChecker
+from proxyvet.core.checkers.stopforumspam import StopForumSpamChecker
 
-app = FastAPI(title="ProxyVet API", version="0.1.0")
+IP_PATTERN = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
 class BatchVettingRequest(BaseModel):
     ips: List[str]
     force_refresh: bool = False
 
-def get_engine() -> VerdictEngine:
+    @field_validator("ips")
+    @classmethod
+    def validate_ips(cls, v):
+        for ip in v:
+            if not IP_PATTERN.match(ip):
+                raise ValueError(f"Invalid IP address format: {ip}")
+        return v
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    client = httpx.AsyncClient(timeout=10.0)
+    app.state.http_client = client
+    
     settings = get_settings()
     cache_mgr = CacheManager(settings.sqlite_db_path)
     cache_mgr.init_db()
-
+    
+    app.state.maxmind_checker = MaxMindChecker(settings.maxmind_db_path)
+    app.state.ip2proxy_checker = IP2ProxyChecker(settings.ip2proxy_db_path)
+    
     checkers = [
-        MaxMindChecker(settings.maxmind_db_path),
-        IP2ProxyChecker(settings.ip2proxy_db_path),
+        app.state.maxmind_checker,
+        app.state.ip2proxy_checker,
         DNSBLChecker(),
-        AbuseIPDBChecker(settings.abuseipdb_api_key),
-        ProxyCheckChecker(settings.proxycheck_api_key)
+        AbuseIPDBChecker(settings.abuseipdb_api_key, client=client),
+        ProxyCheckChecker(settings.proxycheck_api_key, client=client),
+        StopForumSpamChecker(client=client)
     ]
-    return VerdictEngine(settings, cache_mgr, checkers)
+    app.state.engine = VerdictEngine(settings, cache_mgr, checkers)
+    
+    yield
+    
+    # Shutdown
+    app.state.maxmind_checker.close()
+    app.state.ip2proxy_checker.close()
+    await client.aclose()
+
+app = FastAPI(title="ProxyVet API", version="0.1.0", lifespan=lifespan)
+
+def get_engine() -> VerdictEngine:
+    try:
+        return app.state.engine
+    except AttributeError:
+        settings = get_settings()
+        cache_mgr = CacheManager(settings.sqlite_db_path)
+        checkers = [
+            MaxMindChecker(settings.maxmind_db_path),
+            IP2ProxyChecker(settings.ip2proxy_db_path),
+            DNSBLChecker(),
+            AbuseIPDBChecker(settings.abuseipdb_api_key),
+            ProxyCheckChecker(settings.proxycheck_api_key),
+            StopForumSpamChecker()
+        ]
+        return VerdictEngine(settings, cache_mgr, checkers)
 
 @app.get("/health")
 def health():
@@ -60,7 +107,9 @@ async def vet_batch(request: BatchVettingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/history/{ip}")
-def get_ip_history(ip: str):
+def get_ip_history(
+    ip: str = Path(..., pattern=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+):
     settings = get_settings()
     cache_mgr = CacheManager(settings.sqlite_db_path)
     return cache_mgr.get_history(ip)

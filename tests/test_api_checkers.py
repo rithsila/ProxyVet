@@ -1,8 +1,11 @@
 import pytest
+import httpx
+import dns.resolver
 from unittest.mock import AsyncMock, patch, MagicMock
 from proxyvet.core.checkers.abuseipdb import AbuseIPDBChecker
 from proxyvet.core.checkers.proxycheck import ProxyCheckChecker
 from proxyvet.core.checkers.dnsbl import DNSBLChecker
+from proxyvet.core.checkers.stopforumspam import StopForumSpamChecker
 from proxyvet.core.models import ASNType
 
 @pytest.mark.anyio
@@ -29,12 +32,12 @@ async def test_abuseipdb_checker_success(mock_get):
 async def test_abuseipdb_checker_non_200(mock_get):
     mock_resp = MagicMock()
     mock_resp.status_code = 403
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError("403 Forbidden", request=MagicMock(), response=mock_resp)
     mock_get.return_value = mock_resp
 
     checker = AbuseIPDBChecker(api_key="mock_key")
-    res = await checker.check("1.2.3.4")
-    assert res.abuse_score is None
-    assert res.source == "abuseipdb"
+    with pytest.raises(httpx.HTTPStatusError):
+        await checker.check("1.2.3.4")
 
 @pytest.mark.anyio
 @patch('httpx.AsyncClient.get')
@@ -42,16 +45,14 @@ async def test_abuseipdb_checker_exception(mock_get):
     mock_get.side_effect = Exception("Network failure")
 
     checker = AbuseIPDBChecker(api_key="mock_key")
-    res = await checker.check("1.2.3.4")
-    assert res.abuse_score is None
-    assert res.source == "abuseipdb"
+    with pytest.raises(Exception, match="Network failure"):
+        await checker.check("1.2.3.4")
 
 @pytest.mark.anyio
 async def test_abuseipdb_checker_missing_key():
     checker = AbuseIPDBChecker(api_key="")
-    res = await checker.check("1.2.3.4")
-    assert res.abuse_score is None
-    assert res.source == "abuseipdb"
+    with pytest.raises(ValueError, match="API key is missing"):
+        await checker.check("1.2.3.4")
 
 
 @pytest.mark.anyio
@@ -94,6 +95,7 @@ async def test_proxycheck_checker_types(mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
+            "status": "ok",
             "1.2.3.4": {
                 "type": type_str,
                 "proxy": "yes",
@@ -113,11 +115,12 @@ async def test_proxycheck_checker_types(mock_get):
 async def test_proxycheck_checker_non_200(mock_get):
     mock_resp = MagicMock()
     mock_resp.status_code = 500
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError("500 Internal Server Error", request=MagicMock(), response=mock_resp)
     mock_get.return_value = mock_resp
 
     checker = ProxyCheckChecker(api_key="mock_key")
-    res = await checker.check("1.2.3.4")
-    assert res.is_proxy is None
+    with pytest.raises(httpx.HTTPStatusError):
+        await checker.check("1.2.3.4")
 
 @pytest.mark.anyio
 @patch('httpx.AsyncClient.get')
@@ -125,24 +128,25 @@ async def test_proxycheck_checker_exception(mock_get):
     mock_get.side_effect = Exception("API offline")
 
     checker = ProxyCheckChecker(api_key="mock_key")
-    res = await checker.check("1.2.3.4")
-    assert res.is_proxy is None
+    with pytest.raises(Exception, match="API offline"):
+        await checker.check("1.2.3.4")
 
 @pytest.mark.anyio
 async def test_proxycheck_checker_missing_key():
     checker = ProxyCheckChecker(api_key="")
-    res = await checker.check("1.2.3.4")
-    assert res.is_proxy is None
+    with pytest.raises(ValueError, match="API key is missing"):
+        await checker.check("1.2.3.4")
 
 
 @pytest.mark.anyio
 @patch('dns.resolver.resolve')
 async def test_dnsbl_checker_hits(mock_resolve):
-    # Mock dns.resolver.resolve to succeed for zen.spamhaus.org but fail for dnsbl.sorbs.net
     def side_effect(query, rdtype):
         if "zen.spamhaus.org" in query:
-            return [MagicMock()]
-        raise Exception("NXDOMAIN")
+            mock_ans = MagicMock()
+            mock_ans.__str__.return_value = "127.0.0.2"
+            return [mock_ans]
+        raise dns.resolver.NXDOMAIN()
 
     mock_resolve.side_effect = side_effect
 
@@ -154,8 +158,21 @@ async def test_dnsbl_checker_hits(mock_resolve):
 
 @pytest.mark.anyio
 @patch('dns.resolver.resolve')
+async def test_dnsbl_checker_block_refusal(mock_resolve):
+    def side_effect(query, rdtype):
+        mock_ans = MagicMock()
+        mock_ans.__str__.return_value = "127.255.255.2"
+        return [mock_ans]
+
+    mock_resolve.side_effect = side_effect
+    checker = DNSBLChecker(lists=["zen.spamhaus.org"])
+    res = await checker.check("1.2.3.4")
+    assert res.dnsbl_hits == 0
+
+@pytest.mark.anyio
+@patch('dns.resolver.resolve')
 async def test_dnsbl_checker_no_hits(mock_resolve):
-    mock_resolve.side_effect = Exception("NXDOMAIN")
+    mock_resolve.side_effect = dns.resolver.NXDOMAIN()
 
     checker = DNSBLChecker()
     res = await checker.check("1.2.3.4")
@@ -172,3 +189,69 @@ async def test_dnsbl_checker_invalid_ip():
 
     res3 = await checker.check("1.2.3.4.5")
     assert res3.dnsbl_hits == 0
+
+
+@pytest.mark.anyio
+@patch('httpx.AsyncClient.get')
+async def test_stopforumspam_success_appears(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "success": 1,
+        "ip": {
+            "appears": 1,
+            "confidence": 85.5
+        }
+    }
+    mock_get.return_value = mock_resp
+
+    checker = StopForumSpamChecker()
+    res = await checker.check("1.2.3.4")
+    assert res.abuse_score == 85.5
+    assert res.source == "stopforumspam"
+    assert res.ip == "1.2.3.4"
+
+@pytest.mark.anyio
+@patch('httpx.AsyncClient.get')
+async def test_stopforumspam_success_not_appears(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "success": 1,
+        "ip": {
+            "appears": 0,
+            "confidence": 0.0
+        }
+    }
+    mock_get.return_value = mock_resp
+
+    checker = StopForumSpamChecker()
+    res = await checker.check("1.2.3.4")
+    assert res.abuse_score == 0.0
+    assert res.source == "stopforumspam"
+
+@pytest.mark.anyio
+@patch('httpx.AsyncClient.get')
+async def test_stopforumspam_non_200(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError("400 Bad Request", request=MagicMock(), response=mock_resp)
+    mock_get.return_value = mock_resp
+
+    checker = StopForumSpamChecker()
+    with pytest.raises(httpx.HTTPStatusError):
+        await checker.check("1.2.3.4")
+
+@pytest.mark.anyio
+@patch('httpx.AsyncClient.get')
+async def test_stopforumspam_unsuccessful(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "success": 0
+    }
+    mock_get.return_value = mock_resp
+
+    checker = StopForumSpamChecker()
+    with pytest.raises(ValueError, match="StopForumSpam API call was unsuccessful"):
+        await checker.check("1.2.3.4")

@@ -1,6 +1,7 @@
 import typer
 import asyncio
 import os
+import httpx
 from typing import Optional
 from proxyvet.core.config import get_settings
 from proxyvet.core.cache import CacheManager
@@ -10,20 +11,21 @@ from proxyvet.core.checkers.ip2proxy import IP2ProxyChecker
 from proxyvet.core.checkers.dnsbl import DNSBLChecker
 from proxyvet.core.checkers.abuseipdb import AbuseIPDBChecker
 from proxyvet.core.checkers.proxycheck import ProxyCheckChecker
+from proxyvet.core.checkers.stopforumspam import StopForumSpamChecker
 
 app = typer.Typer(help="ProxyVet - IP Quality Vetting Tool")
 
-def get_engine() -> VerdictEngine:
+def get_engine(client: Optional[httpx.AsyncClient] = None) -> VerdictEngine:
     settings = get_settings()
     cache_mgr = CacheManager(settings.sqlite_db_path)
-    cache_mgr.init_db()
 
     checkers = [
         MaxMindChecker(settings.maxmind_db_path),
         IP2ProxyChecker(settings.ip2proxy_db_path),
         DNSBLChecker(),
-        AbuseIPDBChecker(settings.abuseipdb_api_key),
-        ProxyCheckChecker(settings.proxycheck_api_key)
+        AbuseIPDBChecker(settings.abuseipdb_api_key, client=client),
+        ProxyCheckChecker(settings.proxycheck_api_key, client=client),
+        StopForumSpamChecker(client=client)
     ]
     return VerdictEngine(settings, cache_mgr, checkers)
 
@@ -64,8 +66,21 @@ def check(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON")
 ):
     """Vet a single IP address."""
-    engine = get_engine()
-    result = asyncio.run(engine.vet_ip(ip, force_refresh=force_refresh))
+    settings = get_settings()
+    cache_mgr = CacheManager(settings.sqlite_db_path)
+    cache_mgr.init_db()
+
+    async def run_check():
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            engine = get_engine(client=client)
+            try:
+                return await engine.vet_ip(ip, force_refresh=force_refresh)
+            finally:
+                for checker in engine.checkers:
+                    if hasattr(checker, "close"):
+                        checker.close()
+
+    result = asyncio.run(run_check())
     
     if json_output:
         typer.echo(result.model_dump_json())
@@ -88,6 +103,10 @@ def batch(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON")
 ):
     """Vet a batch of IPs from a file."""
+    settings = get_settings()
+    cache_mgr = CacheManager(settings.sqlite_db_path)
+    cache_mgr.init_db()
+
     if not os.path.exists(file_path):
         typer.echo(f"Error: File {file_path} not found.", err=True)
         raise typer.Exit(code=1)
@@ -99,13 +118,19 @@ def batch(
         typer.echo("Error: Validation failed. Batch file contains no IPs or only empty lines.", err=True)
         raise typer.Exit(code=1)
 
-    engine = get_engine()
     if not json_output:
         typer.echo(f"Vetting {len(ips)} IPs...")
     
     async def run_batch():
-        tasks = [engine.vet_ip(ip, force_refresh=force_refresh) for ip in ips]
-        return await asyncio.gather(*tasks)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            engine = get_engine(client=client)
+            try:
+                tasks = [engine.vet_ip(ip, force_refresh=force_refresh) for ip in ips]
+                return await asyncio.gather(*tasks)
+            finally:
+                for checker in engine.checkers:
+                    if hasattr(checker, "close"):
+                        checker.close()
 
     results = asyncio.run(run_batch())
     

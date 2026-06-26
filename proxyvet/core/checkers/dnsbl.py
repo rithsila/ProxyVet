@@ -19,9 +19,15 @@ class DNSBLChecker(BaseChecker):
         query = f"{reversed_ip}.{bl}"
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, dns.resolver.resolve, query, "A")
-            return True
-        except Exception:
+            answers = await loop.run_in_executor(None, dns.resolver.resolve, query, "A")
+            for rdata in answers:
+                ip_str = str(rdata)
+                if ip_str.startswith("127.255.255."):
+                    return False
+                if ip_str.startswith("127.0.0."):
+                    return True
+            return False
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
             return False
 
     async def check(self, ip: str) -> IPSignalData:

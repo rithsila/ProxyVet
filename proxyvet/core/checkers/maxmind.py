@@ -4,9 +4,12 @@ import geoip2.database
 from proxyvet.core.checkers.base import BaseChecker
 from proxyvet.core.models import IPSignalData, ASNType
 
+import geoip2.errors
+
 class MaxMindChecker(BaseChecker):
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self._reader = None
 
     @property
     def name(self) -> str:
@@ -26,18 +29,28 @@ class MaxMindChecker(BaseChecker):
             return ASNType.MOBILE
         return ASNType.RESIDENTIAL
 
+    def _get_reader(self) -> geoip2.database.Reader:
+        if self._reader is None:
+            if not os.path.exists(self.db_path):
+                raise FileNotFoundError(f"MaxMind database file not found at: {self.db_path}")
+            self._reader = geoip2.database.Reader(self.db_path)
+        return self._reader
+
+    def close(self):
+        if self._reader is not None:
+            self._reader.close()
+            self._reader = None
+
     def _run_lookup(self, ip: str) -> IPSignalData:
         result = IPSignalData(ip=ip, source=self.name)
-        if not os.path.exists(self.db_path):
-            return result
+        reader = self._get_reader()
         try:
-            with geoip2.database.Reader(self.db_path) as reader:
-                response = reader.asn(ip)
-                result.asn = response.autonomous_system_number
-                result.asn_org = response.autonomous_system_organization
-                if result.asn_org:
-                    result.asn_type = self._infer_asn_type(result.asn_org)
-        except Exception:
+            response = reader.asn(ip)
+            result.asn = response.autonomous_system_number
+            result.asn_org = response.autonomous_system_organization
+            if result.asn_org:
+                result.asn_type = self._infer_asn_type(result.asn_org)
+        except geoip2.errors.AddressNotFoundError:
             pass
         return result
 
