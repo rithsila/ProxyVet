@@ -23,31 +23,33 @@ class IP2ProxyChecker(BaseChecker):
         db = IP2Proxy.IP2Proxy()
         try:
             db.open(self.db_path)
-            try:
-                res = db.get_all(ip)
-                if res:
-                    is_proxy_val = res.get("is_proxy")
-                    if is_proxy_val is not None and is_proxy_val != "-":
-                        result.is_proxy = is_proxy_val in [1, 2, "1", "2"]
+            res = db.get_all(ip)
+            if res:
+                is_proxy_val = res.get("is_proxy")
+                if is_proxy_val in [1, 2, "1", "2"]:
+                    result.is_proxy = True
+                elif is_proxy_val in [0, "0"]:
+                    result.is_proxy = False
 
-                    proxy_type_val = res.get("proxy_type")
-                    if proxy_type_val is not None and proxy_type_val != "-":
-                        result.is_vpn = proxy_type_val == "VPN"
-                        result.is_tor = proxy_type_val == "TOR"
+                invalid_vals = {None, "-", "NOT SUPPORTED", "INVALID IP ADDRESS"}
 
-                    usage_type_val = res.get("usage_type")
-                    has_usage = usage_type_val is not None and usage_type_val != "-"
-                    has_proxy_type = proxy_type_val is not None and proxy_type_val != "-"
-                    if has_usage or has_proxy_type:
-                        is_dc = (usage_type_val == "DCH") if has_usage else False
-                        is_proxy_dc = (proxy_type_val == "DCH") if has_proxy_type else False
-                        result.is_datacenter = is_dc or is_proxy_dc
-            finally:
-                db.close()
+                proxy_type_val = res.get("proxy_type")
+                if proxy_type_val not in invalid_vals:
+                    result.is_vpn = proxy_type_val == "VPN"
+                    result.is_tor = proxy_type_val == "TOR"
+
+                usage_type_val = res.get("usage_type")
+                has_usage = usage_type_val not in invalid_vals
+                has_proxy_type = proxy_type_val not in invalid_vals
+                if has_usage or has_proxy_type:
+                    is_dc = (usage_type_val == "DCH") if has_usage else False
+                    is_proxy_dc = (proxy_type_val == "DCH") if has_proxy_type else False
+                    result.is_datacenter = is_dc or is_proxy_dc
         except Exception:
             pass
+        finally:
+            db.close()
         return result
 
     async def check(self, ip: str) -> IPSignalData:
         return await asyncio.to_thread(self._run_lookup, ip)
-

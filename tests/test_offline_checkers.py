@@ -61,6 +61,53 @@ async def test_ip2proxy_checker_fallback_fields(mock_ip2proxy_class):
 
 @pytest.mark.anyio
 @patch('IP2Proxy.IP2Proxy')
+async def test_ip2proxy_checker_invalid_and_unsupported_values(mock_ip2proxy_class):
+    # Test for "NOT SUPPORTED" and "INVALID IP ADDRESS" values
+    mock_inst = MagicMock()
+    mock_inst.get_all.return_value = {
+        "usage_type": "NOT SUPPORTED",
+        "is_proxy": "INVALID IP ADDRESS",
+        "proxy_type": "NOT SUPPORTED"
+    }
+    mock_ip2proxy_class.return_value = mock_inst
+
+    with patch('os.path.exists', return_value=True):
+        checker = IP2ProxyChecker(db_path="dummy.bin")
+        res = await checker.check("8.8.8.8")
+        assert res.is_proxy is None
+        assert res.is_vpn is None
+        assert res.is_tor is None
+        assert res.is_datacenter is None
+
+@pytest.mark.anyio
+@patch('IP2Proxy.IP2Proxy')
+async def test_ip2proxy_checker_is_proxy_variations(mock_ip2proxy_class):
+    cases = [
+        ("0", False),
+        (0, False),
+        ("1", True),
+        (1, True),
+        ("2", True),
+        (2, True),
+        ("-1", None),
+        ("INVALID", None),
+    ]
+    for val, expected in cases:
+        mock_inst = MagicMock()
+        mock_inst.get_all.return_value = {
+            "usage_type": "-",
+            "is_proxy": val,
+            "proxy_type": "-"
+        }
+        mock_ip2proxy_class.return_value = mock_inst
+
+        with patch('os.path.exists', return_value=True):
+            checker = IP2ProxyChecker(db_path="dummy.bin")
+            res = await checker.check("8.8.8.8")
+            assert res.is_proxy is expected
+
+@pytest.mark.anyio
+@patch('IP2Proxy.IP2Proxy')
 async def test_ip2proxy_checker_close_on_exception(mock_ip2proxy_class):
     mock_inst = MagicMock()
     mock_inst.get_all.side_effect = Exception("Query error")
