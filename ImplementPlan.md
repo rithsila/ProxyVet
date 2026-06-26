@@ -29,7 +29,7 @@
 - Consumes: None
 - Produces: `proxyvet.core.config.get_settings` returning settings instance with properties like `maxmind_db_path`, `ip2proxy_db_path`, `abuseipdb_api_key`, `proxycheck_api_key`, `sqlite_db_path`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_config.py`:
 ```python
@@ -43,12 +43,12 @@ def test_settings_load():
     assert settings.sqlite_db_path == "proxyvet.db"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_config.py` (or using `uv run pytest`)
 Expected: ModuleNotFoundError for `proxyvet`
 
-- [ ] **Step 3: Create pyproject.toml and source layout**
+- [x] **Step 3: Create pyproject.toml and source layout**
 
 Create `pyproject.toml`:
 ```toml
@@ -108,12 +108,12 @@ def get_settings() -> Settings:
     return Settings()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_config.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -134,7 +134,7 @@ git commit -m "feat: initialize project config and dependencies"
 - Consumes: `proxyvet.core.config`
 - Produces: `ASNType` Enum, `IPSignalData` Pydantic model, `Verdict` Enum, `VerdictResult` Pydantic model, and `BaseChecker` abstract base class.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_models.py`:
 ```python
@@ -152,12 +152,12 @@ def test_ip_signal_data_validation():
     assert data.asn_type == "RESIDENTIAL"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_models.py`
 Expected: Fail (module not found/import error)
 
-- [ ] **Step 3: Implement schemas and BaseChecker**
+- [x] **Step 3: Implement schemas and BaseChecker**
 
 Create `proxyvet/core/models.py`:
 ```python
@@ -226,12 +226,12 @@ class BaseChecker(ABC):
         pass
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_models.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -256,7 +256,7 @@ git commit -m "feat: implement data schemas and base checker interface"
   - `get_history(ip: str) -> List[dict]`: Retrieves past check results.
   - `save_history(result: VerdictResult)`: Appends check result.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_cache.py`:
 ```python
@@ -280,12 +280,12 @@ def test_cache_set_get(cache_mgr):
     assert retrieved.asn == 15169
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_cache.py`
 Expected: FAIL (module/file not found)
 
-- [ ] **Step 3: Implement SQLite CacheManager**
+- [x] **Step 3: Implement SQLite CacheManager**
 
 Create `proxyvet/core/cache.py`:
 ```python
@@ -381,12 +381,12 @@ class CacheManager:
             )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_cache.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -407,7 +407,7 @@ git commit -m "feat: implement SQLite caching and history storage"
 - Consumes: `proxyvet.core.checkers.base.BaseChecker`
 - Produces: `MaxMindChecker` and `IP2ProxyChecker` implementing the abstract interface.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_offline_checkers.py`:
 ```python
@@ -430,12 +430,12 @@ async def test_maxmind_checker(mock_reader):
     assert res.asn_type == "DATACENTER" # Inferred from "Google"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_offline_checkers.py`
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: Implement MaxMind & IP2Proxy Checkers**
+- [x] **Step 3: Implement MaxMind & IP2Proxy Checkers**
 
 Create `proxyvet/core/checkers/maxmind.py`:
 ```python
@@ -523,12 +523,12 @@ class IP2ProxyChecker(BaseChecker):
         return result
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_offline_checkers.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -550,7 +550,7 @@ git commit -m "feat: implement MaxMind and IP2Proxy checkers"
 - Consumes: `BaseChecker`
 - Produces: `DNSBLChecker`, `AbuseIPDBChecker`, `ProxyCheckChecker`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_api_checkers.py`:
 ```python
@@ -577,12 +577,12 @@ async def test_abuseipdb_checker(mock_get):
     assert res.source == "abuseipdb"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_api_checkers.py`
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: Implement DNSBL, AbuseIPDB, and ProxyCheck Checkers**
+- [x] **Step 3: Implement DNSBL, AbuseIPDB, and ProxyCheck Checkers**
 
 Create `proxyvet/core/checkers/dnsbl.py`:
 ```python
@@ -710,12 +710,12 @@ class ProxyCheckChecker(BaseChecker):
         return result
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_api_checkers.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -736,7 +736,7 @@ git commit -m "feat: implement DNSBL, AbuseIPDB, and proxycheck.io checkers"
 - Produces: `VerdictEngine` with method:
   - `vet_ip(ip: str, force_refresh: bool = False) -> VerdictResult`: Vets an IP, checking cache first, running active checkers, scoring signals, performing drift detection, caching new entries, and appending to history.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_engine.py`:
 ```python
@@ -759,12 +759,12 @@ async def test_engine_hard_gate_tor():
     assert "Tor exit node detected" in verdict_res.reasons
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_engine.py`
 Expected: FAIL (module/engine class not found)
 
-- [ ] **Step 3: Implement the Gate-then-Score Verdict Engine**
+- [x] **Step 3: Implement the Gate-then-Score Verdict Engine**
 
 Create `proxyvet/core/engine.py`:
 ```python
@@ -904,12 +904,12 @@ class VerdictEngine:
         return result
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_engine.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -931,7 +931,7 @@ git commit -m "feat: implement gate-then-score engine and workflow integration"
   - `check [IP]`: Vets a single IP address and formats as a table.
   - `batch [FILE]`: Vets multiple IPs in a text file and writes output table or JSON.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_cli.py`:
 ```python
@@ -946,12 +946,12 @@ def test_cli_help():
     assert "vet" in res.stdout or "batch" in res.stdout
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_cli.py`
 Expected: FAIL (module/app not found)
 
-- [ ] **Step 3: Implement Typer CLI**
+- [x] **Step 3: Implement Typer CLI**
 
 Create `proxyvet/cli/__init__.py` (empty)
 Create `proxyvet/cli/main.py`:
@@ -1036,12 +1036,12 @@ if __name__ == "__main__":
     app()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_cli.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
@@ -1061,7 +1061,7 @@ git commit -m "feat: implement CLI commands with Typer"
 - Consumes: `proxyvet.core.engine.VerdictEngine`, `proxyvet.core.config.get_settings`
 - Produces: REST API exposure for single IP check, batch checks, and IP check history.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_api.py`:
 ```python
@@ -1076,12 +1076,12 @@ def test_api_health():
     assert res.json() == {"status": "ok"}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `poetry run pytest tests/test_api.py`
 Expected: FAIL (module/app not found)
 
-- [ ] **Step 3: Implement FastAPI Application**
+- [x] **Step 3: Implement FastAPI Application**
 
 Create `proxyvet/api/__init__.py` (empty)
 Create `proxyvet/api/main.py`:
@@ -1153,12 +1153,12 @@ def get_ip_history(ip: str):
     return cache_mgr.get_history(ip)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `poetry run pytest tests/test_api.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 ```bash
