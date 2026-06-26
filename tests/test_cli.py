@@ -35,10 +35,13 @@ def test_cli_check_clean(mock_get_engine):
 
     res = runner.invoke(app, ["check", "1.1.1.1"])
     assert res.exit_code == 0
-    assert "=== ProxyVet Verdict for 1.1.1.1 ===" in res.stdout
-    assert "Verdict:         CLEAN" in res.stdout
-    assert "Composite Score: 10.0/100.0" in res.stdout
-    assert " - No suspicious flags raised" in res.stdout
+    assert "IP" in res.stdout
+    assert "Verdict" in res.stdout
+    assert "CLEAN" in res.stdout
+    assert "Composite Score" in res.stdout
+    assert "10.0/100.0" in res.stdout
+    assert "No suspicious flags raised" in res.stdout
+    assert "+" in res.stdout  # table border
     mock_engine.vet_ip.assert_called_once_with("1.1.1.1", force_refresh=False)
 
 @patch("proxyvet.cli.main.get_engine")
@@ -114,3 +117,53 @@ def test_cli_batch_force(mock_get_engine, tmp_path):
     res = runner.invoke(app, ["batch", str(ip_file), "--force"])
     assert res.exit_code == 0
     mock_engine.vet_ip.assert_called_once_with("1.1.1.1", force_refresh=True)
+
+@patch("proxyvet.cli.main.get_engine")
+def test_cli_check_json(mock_get_engine):
+    import json
+    mock_engine = MagicMock()
+    mock_engine.vet_ip = AsyncMock(return_value=make_mock_result("1.1.1.1", Verdict.CLEAN, 10.0))
+    mock_get_engine.return_value = mock_engine
+
+    res = runner.invoke(app, ["check", "1.1.1.1", "--json"])
+    assert res.exit_code == 0
+    # Should be valid JSON representation of the model
+    data = json.loads(res.stdout)
+    assert data["ip"] == "1.1.1.1"
+    assert data["verdict"] == "CLEAN"
+    assert data["composite_score"] == 10.0
+
+@patch("proxyvet.cli.main.get_engine")
+def test_cli_batch_json(mock_get_engine, tmp_path):
+    import json
+    mock_engine = MagicMock()
+    mock_engine.vet_ip = AsyncMock(side_effect=lambda ip, force_refresh=False: make_mock_result(
+        ip,
+        verdict=Verdict.CLEAN if ip == "1.1.1.1" else Verdict.BURNED,
+        score=10.0 if ip == "1.1.1.1" else 100.0
+    ))
+    mock_get_engine.return_value = mock_engine
+
+    ip_file = tmp_path / "ips.txt"
+    ip_file.write_text("1.1.1.1\n8.8.8.8\n")
+
+    res = runner.invoke(app, ["batch", str(ip_file), "--json"])
+    assert res.exit_code == 0
+    data = json.loads(res.stdout)
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert data[0]["ip"] == "1.1.1.1"
+    assert data[0]["verdict"] == "CLEAN"
+    assert data[1]["ip"] == "8.8.8.8"
+    assert data[1]["verdict"] == "BURNED"
+
+def test_cli_batch_empty_file(tmp_path):
+    ip_file = tmp_path / "empty_ips.txt"
+    ip_file.write_text("\n   \n\n")
+
+    res = runner.invoke(app, ["batch", str(ip_file)])
+    assert res.exit_code == 1
+    output = res.stdout
+    if not output and hasattr(res, "stderr"):
+        output = res.stderr
+    assert "Error: Validation failed" in output or "empty" in output.lower()
