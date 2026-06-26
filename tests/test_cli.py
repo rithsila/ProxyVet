@@ -186,3 +186,59 @@ def test_cli_batch_invalid_octets(tmp_path):
     if not output and hasattr(res, "stderr"):
         output = res.stderr
     assert "Error: Invalid IP address format: 999.999.999.999" in output
+
+@patch("proxyvet.cli.main.get_engine")
+@patch("proxyvet.cli.main.TelegramAlerter")
+def test_cli_monitor_drift(mock_alerter_class, mock_get_engine, tmp_path):
+    mock_alerter = AsyncMock()
+    mock_alerter_class.return_value = mock_alerter
+    
+    mock_engine = MagicMock()
+    # 1.1.1.1 degrades from CLEAN to CAUTION
+    # 8.8.8.8 stays CLEAN
+    def mock_vet(ip, force_refresh=False):
+        if ip == "1.1.1.1":
+            return make_mock_result(ip, Verdict.CAUTION, 30.0, ["Some reason"], drift=True, prev_verdict=Verdict.CLEAN, prev_score=10.0)
+        else:
+            return make_mock_result(ip, Verdict.CLEAN, 10.0, drift=False, prev_verdict=Verdict.CLEAN, prev_score=10.0)
+            
+    mock_engine.vet_ip = AsyncMock(side_effect=mock_vet)
+    mock_get_engine.return_value = mock_engine
+
+    ip_file = tmp_path / "monitor_ips.txt"
+    ip_file.write_text("1.1.1.1\n8.8.8.8\n")
+
+    res = runner.invoke(app, ["monitor", str(ip_file)])
+    assert res.exit_code == 0
+    assert "Monitoring 2 IPs..." in res.stdout
+    assert "Monitoring complete. 1 alert(s) dispatched." in res.stdout
+    
+    mock_alerter.send_alert.assert_called_once()
+    call_args = mock_alerter.send_alert.call_args[0][0]
+    assert "1.1.1.1" in call_args
+    assert "degraded" in call_args
+    assert "CLEAN" in call_args
+    assert "CAUTION" in call_args
+
+@patch("proxyvet.cli.main.get_engine")
+@patch("proxyvet.cli.main.TelegramAlerter")
+def test_cli_monitor_no_negative_drift(mock_alerter_class, mock_get_engine, tmp_path):
+    mock_alerter = AsyncMock()
+    mock_alerter_class.return_value = mock_alerter
+    
+    mock_engine = MagicMock()
+    # 1.1.1.1 improves from BURNED to CAUTION (no alert)
+    def mock_vet(ip, force_refresh=False):
+        return make_mock_result(ip, Verdict.CAUTION, 30.0, ["Some reason"], drift=True, prev_verdict=Verdict.BURNED, prev_score=80.0)
+            
+    mock_engine.vet_ip = AsyncMock(side_effect=mock_vet)
+    mock_get_engine.return_value = mock_engine
+
+    ip_file = tmp_path / "monitor_ips.txt"
+    ip_file.write_text("1.1.1.1\n")
+
+    res = runner.invoke(app, ["monitor", str(ip_file)])
+    assert res.exit_code == 0
+    assert "Monitoring complete. 0 alert(s) dispatched." in res.stdout
+    mock_alerter.send_alert.assert_not_called()
+

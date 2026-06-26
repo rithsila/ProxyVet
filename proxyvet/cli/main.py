@@ -7,6 +7,8 @@ from typing import Optional
 from proxyvet.core.config import get_settings
 from proxyvet.core.cache import CacheManager
 from proxyvet.core.engine import VerdictEngine
+from proxyvet.core.models import Verdict
+from proxyvet.core.alerting import TelegramAlerter
 from proxyvet.core.checkers.maxmind import MaxMindChecker
 from proxyvet.core.checkers.ip2proxy import IP2ProxyChecker
 from proxyvet.core.checkers.dnsbl import DNSBLChecker
@@ -165,3 +167,72 @@ def batch(
 
 if __name__ == "__main__":
     app()
+
+@app.command()
+def monitor(
+    file_path: str = typer.Argument(..., help="Path to file containing IPs (one per line)"),
+    force_refresh: bool = typer.Option(True, "--force/--no-force", help="Bypass cache and force checks")
+):
+    """Monitor a pool of IPs and alert on degradation via Telegram."""
+    settings = get_settings()
+    cache_mgr = CacheManager(settings.sqlite_db_path)
+    cache_mgr.init_db()
+
+    if not os.path.exists(file_path):
+        typer.echo(f"Error: File {file_path} not found.", err=True)
+        raise typer.Exit(code=1)
+
+    with open(file_path) as f:
+        ips = [line.strip() for line in f if line.strip()]
+
+    if not ips:
+        typer.echo("Error: Validation failed. Batch file contains no IPs or only empty lines.", err=True)
+        raise typer.Exit(code=1)
+
+    for ip in ips:
+        try:
+            ipaddress.IPv4Address(ip)
+        except ipaddress.AddressValueError:
+            typer.echo(f"Error: Invalid IP address format: {ip}", err=True)
+            raise typer.Exit(code=1)
+
+    typer.echo(f"Monitoring {len(ips)} IPs...")
+    alerter = TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
+    
+    async def run_monitor():
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            engine = get_engine(client=client)
+            try:
+                tasks = [engine.vet_ip(ip, force_refresh=force_refresh) for ip in ips]
+                results = await asyncio.gather(*tasks)
+                
+                alerts_sent = 0
+                for result in results:
+                    if result.drift_detected and result.previous_verdict:
+                        hierarchy = {Verdict.CLEAN: 0, Verdict.CAUTION: 1, Verdict.BURNED: 2}
+                        prev_level = hierarchy.get(result.previous_verdict, 0)
+                        curr_level = hierarchy.get(result.verdict, 0)
+                        
+                        if curr_level > prev_level:
+                            reasons_str = "\n".join(f"- {r}" for r in result.reasons)
+                            msg = (
+                                f"🚨 <b>ProxyVet Alert</b> 🚨\n\n"
+                                f"IP: <code>{result.ip}</code> degraded!\n"
+                                f"Previous Verdict: <b>{result.previous_verdict.value}</b> ({result.previous_score:.1f})\n"
+                                f"New Verdict: <b>{result.verdict.value}</b> ({result.composite_score:.1f})\n\n"
+                                f"Reasons:\n{reasons_str}"
+                            )
+                            try:
+                                await alerter.send_alert(msg)
+                                alerts_sent += 1
+                                typer.echo(f"Alert sent for {result.ip}")
+                            except Exception as e:
+                                typer.echo(f"Failed to send alert for {result.ip}: {e}", err=True)
+                return alerts_sent
+            finally:
+                for checker in engine.checkers:
+                    if hasattr(checker, "close"):
+                        checker.close()
+
+    alerts_count = asyncio.run(run_monitor())
+    typer.echo(f"Monitoring complete. {alerts_count} alert(s) dispatched.")

@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     proxycheck_api_key: str = ""
     vpnapi_api_key: str = ""
     ipqualityscore_api_key: str = ""
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     maxmind_db_path: str = "data/GeoLite2-ASN.mmdb"
     ip2proxy_db_path: str = "data/IP2PROXY-LITE-PX1.BIN"
     sqlite_db_path: str = "proxyvet.db"
